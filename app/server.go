@@ -8,21 +8,50 @@ import (
 	"strings"
 )
 
-func generateResponse(query string) []byte {
-	response := make([]byte, 1024)
-	queryParts := strings.Split(query, " ")[1]
-
-	if len(queryParts) > 2 {
-		arr := strings.Split(queryParts, "/")
-		if len(arr) > 2 {
-			responseBody := arr[len(arr)-1]
-			responseValue := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(responseBody), responseBody)
-			response = []byte(responseValue)
-		} else {
-			response = []byte("HTTP/1.1 404 Not Found\r\n\r\n")
+// this function returns only user-agent for now
+func parseHeaders(requestArray []string) string {
+	headers := make(map[string]string)
+	for _, a := range requestArray {
+		aSplit := strings.Split(a, ":")
+		var a1, a2 string
+		if len(aSplit) == 2 {
+			a1, a2 = aSplit[0], aSplit[1]
 		}
+		headers[a1] = a2
+	}
+	return headers["User-Agent"]
+}
+
+// parse the request of the form "GET / HTTP/1.1"
+func parseRequest(request string) (string, string, string) {
+	parsedRequest := strings.Split(request, " ")
+	var method string
+	var requestTarget string
+	var protocolVersion string
+
+	if len(parsedRequest) > 2 {
+		method, requestTarget, protocolVersion = parsedRequest[0], parsedRequest[1], parsedRequest[2]
+	}
+	return method, requestTarget, protocolVersion
+}
+
+func generateResponse(query []string) []byte {
+	response := make([]byte, 1024)
+	_, endPoint, _ := parseRequest(query[0])
+	userAgent := strings.TrimSpace(parseHeaders(query[1:]))
+	if endPoint == "/" {
+		responseValue := "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: \r\n\r\n"
+		response = []byte(responseValue)
+	} else if endPoint == "/user-agent" {
+		responseValue := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(userAgent), userAgent)
+		response = []byte(responseValue)
+	} else if strings.Contains(endPoint, "/echo/") {
+		temp := strings.Split(endPoint, "/")
+		responseBody := temp[len(temp)-1]
+		responseValue := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(responseBody), responseBody)
+		response = []byte(responseValue)
 	} else {
-		response = []byte("HTTP/1.1 200 OK\r\n\r\n")
+		response = []byte("HTTP/1.1 404 Not Found\r\n\r\n")
 	}
 	return response
 }
@@ -33,43 +62,22 @@ func main() {
 		fmt.Println("Failed to bind to port 4221")
 		os.Exit(1)
 	}
-
 	for {
-
 		localConnection, err := l.Accept()
 		if err != nil {
 			fmt.Println("Error accepting connection: ", err.Error())
 			os.Exit(1)
 		}
-
+		prefix := make([]byte, 400)
 		reader := bufio.NewReader(localConnection)
-		requestLine, err := reader.ReadString('\n')
+		_, err = reader.Read(prefix)
+		lines := strings.Split(strings.TrimSpace(string(prefix)), "\r\n")
 		if err != nil {
 			fmt.Println("Error accepting connection: ", err.Error())
 			os.Exit(1)
 		}
-
-		response := generateResponse(requestLine)
-		// fmt.Println(response)
-		// if len(strings.Split(requestLine, " ")[1]) > 1 {
-		// 	response = []byte("HTTP/1.1 404 Not Found\r\n\r\n")
-		// } else {
-		// 	response = []byte("HTTP/1.1 200 OK\r\n\r\n")
-		// }
+		response := generateResponse(lines)
 		_, err = localConnection.Write(response)
 		localConnection.Close()
 	}
-
-	// localConnectionTwo, err := l.Accept()
-	// if err != nil {
-	// 	fmt.Println("Error accepting connection: ", err.Error())
-	// 	os.Exit(1)
-	// }
-	//
-	// responseTwo := []byte("HTTP/1.1 200 OK\r\n\r\n")
-	// _, err = localConnectionTwo.Write(responseTwo)
-	// if err != nil {
-	// 	fmt.Println(err)
-	// }
-	// localConnectionTwo.Close()
 }
