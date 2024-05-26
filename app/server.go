@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"strings"
 )
 
-// this function returns only user-agent for now
+// this function returns only User-Agent for now
 func parseHeaders(requestArray []string) string {
 	headers := make(map[string]string)
 	for _, a := range requestArray {
@@ -35,6 +36,7 @@ func parseRequest(request string) (string, string, string) {
 	return method, requestTarget, protocolVersion
 }
 
+// Handler to generate the responses based on the routes
 func generateResponse(query []string) []byte {
 	response := make([]byte, 1024)
 	_, endPoint, _ := parseRequest(query[0])
@@ -50,10 +52,56 @@ func generateResponse(query []string) []byte {
 		responseBody := temp[len(temp)-1]
 		responseValue := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(responseBody), responseBody)
 		response = []byte(responseValue)
+	} else if strings.Contains(endPoint, "/files/") {
+		fmt.Println(query)
+
+		isFilePresent, fileContents := fileHandlerRoute(endPoint)
+		responseValue := ""
+		if !isFilePresent {
+			responseValue = "HTTP/1.1 404 Not Found\r\n\r\n"
+		} else {
+			responseValue = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n%s", len(fileContents), fileContents)
+		}
+		response = []byte(responseValue)
 	} else {
 		response = []byte("HTTP/1.1 404 Not Found\r\n\r\n")
 	}
 	return response
+}
+
+func getFileDetails(fileName string, directory string) (string, bool) {
+	filePath := path.Join(directory, fileName)
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return "", false
+	}
+	fmt.Println(fileInfo)
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", false
+	}
+	fmt.Println(string(data))
+	return string(data), true
+}
+
+func fileHandlerRoute(endPoint string) (bool, string) {
+	args := os.Args
+	fmt.Println(args)
+	if len(args) < 3 {
+		panic("args not sufficient")
+	}
+	directoryPath := args[2]
+	temp := strings.Split(endPoint, "/")
+	fileName := temp[len(temp)-1]
+
+	fmt.Printf("searching for the file %s in directory location := %s\n", fileName, directoryPath)
+	fmt.Println(endPoint)
+	fileContents, present := getFileDetails(fileName, directoryPath)
+	if !present {
+		return false, ""
+	}
+	return true, fileContents
+
 }
 
 func main() {
