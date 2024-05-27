@@ -2,12 +2,59 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"net"
 	"os"
 	"path"
 	"strings"
 )
+
+func handlePostForFiles(fileContents string, endPoint string) []byte {
+	var responseValue string
+
+	destinationFileName := strings.Split(endPoint, "/")[len(strings.Split(endPoint, "/"))-1]
+	destinationDirectory := handleArgs()
+
+	_, err := os.Create(path.Join(destinationDirectory, destinationFileName))
+	if err != nil {
+		// panic("unable to create file")
+		responseValue = "HTTP/1.1 500 Internal Server Error\r\n\r\n"
+		return []byte(responseValue)
+	}
+
+	os.Remove(path.Join(destinationDirectory, destinationFileName))
+
+	fileContentBytes := []byte(fileContents)
+	// trim the null characters
+	fileContentBytes = bytes.Trim(fileContentBytes, "\x00")
+
+	err = os.WriteFile(path.Join(destinationDirectory, destinationFileName), fileContentBytes, 777)
+	_, err = os.ReadFile(path.Join(destinationDirectory, destinationFileName))
+	if err != nil {
+		responseValue = "HTTP/1.1 500 Internal Server Error\r\n\r\n"
+		return []byte(responseValue)
+	}
+	if err != nil {
+		responseValue = "HTTP/1.1 500 Internal Server Error\r\n\r\n"
+		return []byte(responseValue)
+	}
+	responseValue = "HTTP/1.1 201 Created\r\n\r\n"
+	return []byte(responseValue)
+}
+
+func handleGetForFiles(endPoint string) []byte {
+	response := make([]byte, 1024)
+	isFilePresent, fileContents := fileHandlerRoute(endPoint)
+	responseValue := ""
+	if !isFilePresent {
+		responseValue = "HTTP/1.1 404 Not Found\r\n\r\n"
+	} else {
+		responseValue = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n%s", len(fileContents), fileContents)
+	}
+	response = []byte(responseValue)
+	return response
+}
 
 // this function returns only User-Agent for now
 func parseHeaders(requestArray []string) string {
@@ -26,6 +73,7 @@ func parseHeaders(requestArray []string) string {
 // parse the request of the form "GET / HTTP/1.1"
 func parseRequest(request string) (string, string, string) {
 	parsedRequest := strings.Split(request, " ")
+
 	var method string
 	var requestTarget string
 	var protocolVersion string
@@ -33,13 +81,14 @@ func parseRequest(request string) (string, string, string) {
 	if len(parsedRequest) > 2 {
 		method, requestTarget, protocolVersion = parsedRequest[0], parsedRequest[1], parsedRequest[2]
 	}
+
 	return method, requestTarget, protocolVersion
 }
 
 // Handler to generate the responses based on the routes
 func generateResponse(query []string) []byte {
 	response := make([]byte, 1024)
-	_, endPoint, _ := parseRequest(query[0])
+	method, endPoint, _ := parseRequest(query[0])
 	userAgent := strings.TrimSpace(parseHeaders(query[1:]))
 	if endPoint == "/" {
 		responseValue := "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: \r\n\r\n"
@@ -53,16 +102,13 @@ func generateResponse(query []string) []byte {
 		responseValue := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(responseBody), responseBody)
 		response = []byte(responseValue)
 	} else if strings.Contains(endPoint, "/files/") {
-		fmt.Println(query)
-
-		isFilePresent, fileContents := fileHandlerRoute(endPoint)
-		responseValue := ""
-		if !isFilePresent {
-			responseValue = "HTTP/1.1 404 Not Found\r\n\r\n"
+		if method == "GET" {
+			response = handleGetForFiles(endPoint)
+		} else if method == "POST" {
+			fileContents := query[len(query)-1]
+			response = handlePostForFiles(fileContents, endPoint)
 		} else {
-			responseValue = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n%s", len(fileContents), fileContents)
 		}
-		response = []byte(responseValue)
 	} else {
 		response = []byte("HTTP/1.1 404 Not Found\r\n\r\n")
 	}
@@ -71,37 +117,36 @@ func generateResponse(query []string) []byte {
 
 func getFileDetails(fileName string, directory string) (string, bool) {
 	filePath := path.Join(directory, fileName)
-	fileInfo, err := os.Stat(filePath)
+	_, err := os.Stat(filePath)
 	if err != nil {
 		return "", false
 	}
-	fmt.Println(fileInfo)
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", false
 	}
-	fmt.Println(string(data))
 	return string(data), true
 }
 
-func fileHandlerRoute(endPoint string) (bool, string) {
+// handleArgs returns the second argument from the args
+func handleArgs() string {
 	args := os.Args
-	fmt.Println(args)
 	if len(args) < 3 {
 		panic("args not sufficient")
 	}
-	directoryPath := args[2]
+	return args[2]
+}
+
+func fileHandlerRoute(endPoint string) (bool, string) {
+	directoryPath := handleArgs()
 	temp := strings.Split(endPoint, "/")
 	fileName := temp[len(temp)-1]
 
-	fmt.Printf("searching for the file %s in directory location := %s\n", fileName, directoryPath)
-	fmt.Println(endPoint)
 	fileContents, present := getFileDetails(fileName, directoryPath)
 	if !present {
 		return false, ""
 	}
 	return true, fileContents
-
 }
 
 func main() {
