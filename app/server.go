@@ -57,17 +57,20 @@ func handleGetForFiles(endPoint string) []byte {
 }
 
 // this function returns only User-Agent for now
-func parseHeaders(requestArray []string) string {
+func parseHeaders(requestArray []string) (string, map[string]string) {
 	headers := make(map[string]string)
 	for _, a := range requestArray {
 		aSplit := strings.Split(a, ":")
+		fmt.Println(aSplit, len(aSplit))
 		var a1, a2 string
 		if len(aSplit) == 2 {
 			a1, a2 = aSplit[0], aSplit[1]
 		}
 		headers[a1] = a2
 	}
-	return headers["User-Agent"]
+	fmt.Println(headers)
+
+	return headers["User-Agent"], headers
 }
 
 // parse the request of the form "GET / HTTP/1.1"
@@ -89,7 +92,8 @@ func parseRequest(request string) (string, string, string) {
 func generateResponse(query []string) []byte {
 	response := make([]byte, 1024)
 	method, endPoint, _ := parseRequest(query[0])
-	userAgent := strings.TrimSpace(parseHeaders(query[1:]))
+	header, _ := parseHeaders(query[1:])
+	userAgent := strings.TrimSpace(header)
 	if endPoint == "/" {
 		responseValue := "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: \r\n\r\n"
 		response = []byte(responseValue)
@@ -97,9 +101,22 @@ func generateResponse(query []string) []byte {
 		responseValue := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(userAgent), userAgent)
 		response = []byte(responseValue)
 	} else if strings.Contains(endPoint, "/echo/") {
+		_, headers := parseHeaders(query[1:])
+		headerValue, ok := headers["Accept-Encoding"]
+		var responseBody string
+		var responseValue string
 		temp := strings.Split(endPoint, "/")
-		responseBody := temp[len(temp)-1]
-		responseValue := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(responseBody), responseBody)
+
+		if ok && strings.TrimSpace(headerValue) == "gzip" {
+			responseBody = temp[len(temp)-1]
+			responseValue = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(responseBody), responseBody)
+			fmt.Printf("c1 the response value is -> %s\nThe query was -> %s", responseValue, query)
+		} else {
+			responseBody = temp[len(temp)-1]
+			responseValue = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(responseBody), responseBody)
+			fmt.Printf("c2 the response value is -> %s\nThe query was -> %s", responseValue, query)
+
+		}
 		response = []byte(responseValue)
 	} else if strings.Contains(endPoint, "/files/") {
 		if method == "GET" {
