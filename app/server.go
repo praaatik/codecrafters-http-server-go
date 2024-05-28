@@ -3,12 +3,29 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"fmt"
 	"net"
 	"os"
 	"path"
 	"strings"
 )
+
+func convertToGzip(data string) ([]byte, error) {
+	buf := new(bytes.Buffer)
+	writer := gzip.NewWriter(buf)
+	_, err := writer.Write([]byte(data))
+	if err != nil {
+		return nil, err
+	}
+
+	err = writer.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
 
 func handlePostForFiles(fileContents string, endPoint string) []byte {
 	var responseValue string
@@ -67,7 +84,7 @@ func parseHeaders(requestArray []string) (string, map[string]string) {
 	headers := make(map[string]string)
 	for _, a := range requestArray {
 		aSplit := strings.Split(a, ":")
-		//fmt.Println(aSplit, len(aSplit))
+		// fmt.Println(aSplit, len(aSplit))
 		if aSplit[0] == "Accept-Encoding" {
 			isGzipPresent(aSplit[1])
 		}
@@ -77,7 +94,6 @@ func parseHeaders(requestArray []string) (string, map[string]string) {
 		}
 		headers[a1] = a2
 	}
-	//fmt.Println(headers)
 
 	return headers["User-Agent"], headers
 }
@@ -121,7 +137,9 @@ func generateResponse(query []string) []byte {
 
 		if gzipPresent {
 			responseBody = temp[len(temp)-1]
-			responseValue = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(responseBody), responseBody)
+
+			gzipEncodedResponseBody, _ := convertToGzip(responseBody)
+			responseValue = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(gzipEncodedResponseBody), string(gzipEncodedResponseBody))
 		} else {
 			responseBody = temp[len(temp)-1]
 			responseValue = fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", len(responseBody), responseBody)
@@ -190,6 +208,7 @@ func main() {
 		prefix := make([]byte, 400)
 		reader := bufio.NewReader(localConnection)
 		_, err = reader.Read(prefix)
+
 		lines := strings.Split(strings.TrimSpace(string(prefix)), "\r\n")
 		if err != nil {
 			fmt.Println("Error accepting connection: ", err.Error())
